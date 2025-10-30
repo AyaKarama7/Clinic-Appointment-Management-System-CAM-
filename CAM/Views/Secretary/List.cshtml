@@ -1,0 +1,384 @@
+﻿@using Microsoft.AspNetCore.Html
+@model IEnumerable<CAM.Models.Appointment>
+@{
+    ViewData["Title"] = "Appointments - CAM";
+    var currentDate = DateTime.UtcNow.Date;
+    var selectedDate = Context.Request.Query["date"].FirstOrDefault();
+    var filterDate = string.IsNullOrEmpty(selectedDate) ? currentDate : DateTime.Parse(selectedDate).Date;
+    var appointments = Model.Where(a => a.StartAt.Date == filterDate).ToList();
+    var totalAppointments = appointments.Count();
+    var confirmedCount = appointments.Count(a => a.Status == "Confirmed");
+    var pendingCount = appointments.Count(a => a.Status == "Pending");
+
+
+    Func<string, object> GetStatusBadge = status =>
+    {
+        var (bgClass, textClass, icon) = status switch
+        {
+            "Confirmed" => ("bg-success", "text-white", "fas fa-check-circle"),
+            "Pending" => ("bg-warning", "text-dark", "fas fa-clock"),
+            "Cancelled" => ("bg-danger", "text-white", "fas fa-times-circle"),
+            _ => ("bg-secondary", "text-white", "fas fa-question-circle")
+        };
+        return new HtmlString($"<span class='badge {bgClass} {textClass}'><i class='{icon} me-1'></i>{status}</span>");
+    };
+}
+
+<div class="container-fluid py-4">
+    <!-- Header Section -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center flex-wrap">
+                <div>
+                    <h1 class="h3 mb-1 text-primary">
+                        <i class="fas fa-calendar-check me-2"></i>Appointments Management
+                    </h1>
+                    <p class="text-muted mb-0">Manage and track patient appointments</p>
+                </div>
+                <div class="d-flex gap-2">
+                    <a href="@Url.Action("New", "Secretary")" class="btn btn-primary">
+                        <i class="fas fa-plus me-2"></i>New Appointment
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Statistics Cards -->
+    <div class="row mb-4">
+        <div class="col-md-3 mb-3">
+            <div class="card h-100 border-start border-primary border-4">
+                <div class="card-body text-center">
+                    <div class="display-6 fw-bold text-primary">@totalAppointments</div>
+                    <div class="text-muted small">Total Appointments</div>
+                    <div class="text-muted small">@filterDate.ToString("MMM dd, yyyy")</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3 mb-3">
+            <div class="card h-100 border-start border-success border-4">
+                <div class="card-body text-center">
+                    <div class="display-6 fw-bold text-success">@confirmedCount</div>
+                    <div class="text-muted small">Confirmed</div>
+                    <div class="progress mt-2" style="height: 4px;">
+                        <div class="progress-bar bg-success" style="width: @(totalAppointments > 0 ? (confirmedCount * 100 / totalAppointments) : 0)%"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3 mb-3">
+            <div class="card h-100 border-start border-warning border-4">
+                <div class="card-body text-center">
+                    <div class="display-6 fw-bold text-warning">@pendingCount</div>
+                    <div class="text-muted small">Pending</div>
+                    <div class="progress mt-2" style="height: 4px;">
+                        <div class="progress-bar bg-warning" style="width: @(totalAppointments > 0 ? (pendingCount * 100 / totalAppointments) : 0)%"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3 mb-3">
+            <div class="card h-100 border-start border-info border-4">
+                <div class="card-body text-center">
+                    <div class="display-6 fw-bold text-info">@(totalAppointments > 0 ? $"{appointments.Average(a => a.VisitLengthMins):F0}" : "0")</div>
+                    <div class="text-muted small">Avg Duration</div>
+                    <div class="text-muted small">minutes</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Filters and Search -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <div class="row g-3 align-items-end">
+                <div class="col-md-4">
+                    <label for="dateFilter" class="form-label fw-semibold">Filter by Date</label>
+                    <input type="date" id="dateFilter" class="form-control"
+                           value="@filterDate.ToString("yyyy-MM-dd")"
+                           onchange="filterByDate(this.value)" />
+                </div>
+                <div class="col-md-4">
+                    <label for="statusFilter" class="form-label fw-semibold">Filter by Status</label>
+                    <select id="statusFilter" class="form-select" onchange="filterByStatus(this.value)">
+                        <option value="">All Status</option>
+                        <option value="Confirmed">Confirmed</option>
+                        <option value="Pending">Pending</option>
+                        <option value="Cancelled">Cancelled</option>
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-outline-primary" onclick="refreshAppointments()">
+                            <i class="fas fa-sync-alt me-1"></i>Refresh
+                        </button>
+                        <button class="btn btn-outline-success" onclick="exportToCSV()">
+                            <i class="fas fa-download me-1"></i>Export
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Appointments Table -->
+    <div class="card">
+        <div class="card-header bg-light">
+            <div class="d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="fas fa-list me-2"></i>Appointments for @filterDate.ToString("dddd, MMMM dd, yyyy")
+                </h5>
+                <div class="btn-group btn-group-sm" role="group">
+                    <input type="radio" class="btn-check" name="viewMode" id="tableView" autocomplete="off" checked>
+                    <label class="btn btn-outline-secondary btn-sm" for="tableView">
+                        <i class="fas fa-table"></i>
+                    </label>
+                    <input type="radio" class="btn-check" name="viewMode" id="cardView" autocomplete="off">
+                    <label class="btn btn-outline-secondary btn-sm" for="cardView">
+                        <i class="fas fa-th"></i>
+                    </label>
+                </div>
+            </div>
+        </div>
+        <div class="card-body p-0">
+            <!-- Table View -->
+            <div id="tableViewContent">
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th class="border-0 fw-semibold">
+                                    <i class="fas fa-clock me-1"></i>Time
+                                </th>
+                                <th class="border-0 fw-semibold">
+                                    <i class="fas fa-user-md me-1"></i>Doctor
+                                </th>
+                                <th class="border-0 fw-semibold">
+                                    <i class="fas fa-user me-1"></i>Patient
+                                </th>
+                                <th class="border-0 fw-semibold">
+                                    <i class="fas fa-info-circle me-1"></i>Status
+                                </th>
+                                <th class="border-0 fw-semibold">
+                                    <i class="fas fa-cogs me-1"></i>Actions
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (appointments.Any())
+                            {
+                                @foreach (var appointment in appointments.OrderBy(a => a.StartAt))
+                                {
+                                    <tr class="appointment-row" data-status="@appointment.Status">
+                                        <td>
+                                            <div class="fw-semibold">@appointment.StartAt.ToLocalTime().ToString("HH:mm")</div>
+                                            <small class="text-muted">@appointment.VisitLengthMins minutes</small>
+                                        </td>
+                                        <td>
+                                            <div class="d-flex align-items-center">
+                                                <div class="avatar-circle bg-primary text-white me-2">
+                                                    @(appointment.Doctor.FirstName[0])@(appointment.Doctor.LastName[0])
+                                                </div>
+                                                <div>
+                                                    <div class="fw-semibold">@appointment.Doctor.FirstName @appointment.Doctor.LastName</div>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td>
+                                            <div class="d-flex align-items-center">
+                                                <div class="avatar-circle bg-secondary text-white me-2">
+                                                    @(appointment.Patient.FirstName[0])@(appointment.Patient.LastName[0])
+                                                </div>
+                                                <div>
+                                                    <div class="fw-semibold">@appointment.Patient.FirstName @appointment.Patient.LastName</div>
+                                                    <small class="text-muted">@appointment.Patient.Phone</small>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td>
+                                            @GetStatusBadge(appointment.Status)
+                                        </td>
+                                        <td>
+                                            <div class="btn-group btn-group-sm">
+                                                <button class="btn btn-outline-primary btn-sm" onclick="viewDetails(@appointment.AppointmentId)" title="View Details">
+                                                    <i class="fas fa-eye"></i>
+                                                </button>
+                                                <button class="btn btn-outline-warning btn-sm" onclick="editAppointment(@appointment.AppointmentId)" title="Edit">
+                                                    <i class="fas fa-edit"></i>
+                                                </button>
+                                                <button class="btn btn-outline-danger btn-sm" onclick="cancelAppointment(@appointment.AppointmentId)" title="Cancel">
+                                                    <i class="fas fa-times"></i>
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                }
+                            }
+                            else
+                            {
+                                <tr>
+                                    <td colspan="5" class="text-center py-5">
+                                        <i class="fas fa-calendar-times fa-3x text-muted mb-3"></i>
+                                        <h5 class="text-muted">No appointments found</h5>
+                                        <p class="text-muted mb-0">There are no appointments scheduled for this date.</p>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Card View -->
+            <div id="cardViewContent" class="d-none">
+                <div class="row g-3 p-3">
+                    @if (appointments.Any())
+                    {
+                        @foreach (var appointment in appointments.OrderBy(a => a.StartAt))
+                        {
+                            <div class="col-lg-6 col-xl-4">
+                                <div class="card h-100 shadow-sm appointment-card" data-status="@appointment.Status">
+                                    <div class="card-body">
+                                        <div class="d-flex justify-content-between align-items-start mb-3">
+                                            <div class="flex-grow-1">
+                                                <h6 class="card-title mb-1">
+                                                    <i class="fas fa-clock text-primary me-1"></i>
+                                                    @appointment.StartAt.ToLocalTime().ToString("HH:mm") - @appointment.EndAt.ToLocalTime().ToString("HH:mm")
+                                                </h6>
+                                                <small class="text-muted">@appointment.VisitLengthMins minutes</small>
+                                            </div>
+                                            @GetStatusBadge(appointment.Status)
+                                        </div>
+
+                                        <div class="row g-2 mb-3">
+                                            <div class="col-12">
+                                                <small class="text-muted d-block">Doctor</small>
+                                                <div class="d-flex align-items-center">
+                                                    <div class="avatar-circle bg-primary text-white me-2">
+                                                        @(appointment.Doctor.FirstName[0])@(appointment.Doctor.LastName[0])
+                                                    </div>
+                                                    <span class="fw-semibold">@appointment.Doctor.FirstName @appointment.Doctor.LastName</span>
+                                                </div>
+                                            </div>
+                                            <div class="col-12">
+                                                <small class="text-muted d-block">Patient</small>
+                                                <div class="d-flex align-items-center">
+                                                    <div class="avatar-circle bg-secondary text-white me-2">
+                                                        @(appointment.Patient.FirstName[0])@(appointment.Patient.LastName[0])
+                                                    </div>
+                                                    <div>
+                                                        <span class="fw-semibold">@appointment.Patient.FirstName @appointment.Patient.LastName</span>
+                                                        <br><small class="text-muted">@appointment.Patient.Phone</small>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div class="d-flex gap-1">
+                                            <button class="btn btn-outline-primary btn-sm flex-fill" onclick="viewDetails(@appointment.AppointmentId)">
+                                                <i class="fas fa-eye me-1"></i>View
+                                            </button>
+                                            <button class="btn btn-outline-warning btn-sm flex-fill" onclick="editAppointment(@appointment.AppointmentId)">
+                                                <i class="fas fa-edit me-1"></i>Edit
+                                            </button>
+                                            <button class="btn btn-outline-danger btn-sm flex-fill" onclick="cancelAppointment(@appointment.AppointmentId)">
+                                                <i class="fas fa-times me-1"></i>Cancel
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    }
+                    else
+                    {
+                        <div class="col-12">
+                            <div class="text-center py-5">
+                                <i class="fas fa-calendar-times fa-3x text-muted mb-3"></i>
+                                <h5 class="text-muted">No appointments found</h5>
+                                <p class="text-muted mb-0">There are no appointments scheduled for this date.</p>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+
+        document.querySelectorAll('input[name="viewMode"]').forEach(radio => {
+            radio.addEventListener('change', function() {
+                const tableView = document.getElementById('tableViewContent');
+                const cardView = document.getElementById('cardViewContent');
+
+                if (this.id === 'tableView') {
+                    tableView.classList.remove('d-none');
+                    cardView.classList.add('d-none');
+                } else {
+                    tableView.classList.add('d-none');
+                    cardView.classList.remove('d-none');
+                }
+            });
+        });
+
+
+        function filterByDate(date) {
+            window.location.href = `@Url.Action("List", "Secretary")?date=${date}`;
+        }
+
+        function filterByStatus(status) {
+            const rows = document.querySelectorAll('.appointment-row, .appointment-card');
+            rows.forEach(row => {
+                if (!status || row.dataset.status === status) {
+                    row.style.display = '';
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+        }
+
+        function refreshAppointments() {
+            location.reload();
+        }
+
+        function exportToCSV() {
+    
+            const rows = document.querySelectorAll('.appointment-row');
+            let csv = 'Time,Doctor,Patient,Status\n';
+
+            rows.forEach(row => {
+                const cols = row.querySelectorAll('td');
+                const rowData = Array.from(cols).map(col =>
+                    col.textContent.replace(/,/g, ';').trim()
+                ).slice(0, 4); 
+                csv += rowData.join(',') + '\n';
+            });
+
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `appointments-${new Date().toISOString().split('T')[0]}.csv`;
+            a.click();
+            window.URL.revokeObjectURL(url);
+        }
+
+
+        function viewDetails(id) {
+            alert(`View details for appointment ${id}`);
+        }
+
+        function editAppointment(id) {
+            alert(`Edit appointment ${id}`);
+        }
+
+        function cancelAppointment(id) {
+            if (confirm('Are you sure you want to cancel this appointment?')) {
+                alert(`Cancel appointment ${id}`);
+            }
+        }
+    </script>
+}
